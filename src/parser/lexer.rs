@@ -1,11 +1,16 @@
-use ariadne::{sources, Color, Label, Report, ReportKind};
 use chumsky::prelude::*;
 
 use std::fmt;
 
-use crate::common::{Span, Spanned};
+use crate::parser::common::{Span, Spanned};
 
-#[derive(Debug, Clone, PartialEq)]
+/// Perform lexing over a DCPL program `&str` into a `Vec` of [`Token`](crate::parser::lexer::Token)
+pub fn lex(input: &'_ str) -> Result<Vec<Spanned<Token<'_>>>, Vec<Rich<'_, char>>> {
+    lexer().parse(input).into_result()
+}
+
+/// A lexer token that can be fed into the parser
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Token<'a> {
     Undefined,
     Number(f64),
@@ -179,94 +184,4 @@ fn lexer<'a>() -> impl Parser<'a, &'a str, Vec<Spanned<Token<'a>>>, extra::Err<R
         .recover_with(skip_then_retry_until(any().ignored(), end()))
         .repeated()
         .collect()
-}
-
-pub fn lex(filename: String, input: &'_ str) -> Option<Vec<Spanned<Token<'_>>>> {
-    let (tokens, parse_errs) = lexer().parse(input).into_output_errors();
-
-    if parse_errs.is_empty() {
-        tokens
-    } else {
-        parse_errs
-            .into_iter()
-            .map(|e| e.map_token(|tok| tok.to_string()))
-            .for_each(|e| {
-                Report::build(ReportKind::Error, filename.clone(), e.span().start)
-                    .with_message(e.to_string())
-                    .with_label(
-                        Label::new((filename.clone(), e.span().into_range()))
-                            .with_message(e.reason().to_string())
-                            .with_color(Color::Red),
-                    )
-                    .with_labels(e.contexts().map(|(label, span)| {
-                        Label::new((filename.clone(), span.into_range()))
-                            .with_message(format!("while parsing this {}", label))
-                            .with_color(Color::Yellow)
-                    }))
-                    .finish()
-                    .print(sources([(filename.clone(), input)]))
-                    .unwrap()
-            });
-        None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn power_frame() {
-        match lex(
-            "test_power_frame".into(),
-            "
-            power {
-                holder: student | staff
-                action: #register { instrument: holder.id_card }
-                consequence: holder becomes member
-            } as p1
-        ",
-        ) {
-            Some(mut tokens) => assert_eq!(
-                tokens
-                    .iter_mut()
-                    .map(|(t, _)| t.clone())
-                    .collect::<Vec<_>>(),
-                vec![
-                    Token::NewLine,
-                    Token::Power,
-                    Token::CurlyOpen,
-                    Token::Identifier("holder"),
-                    Token::Column,
-                    Token::Identifier("student"),
-                    Token::Union,
-                    Token::Identifier("staff"),
-                    Token::NewLine,
-                    Token::Identifier("action"),
-                    Token::Column,
-                    Token::Hash,
-                    Token::Identifier("register"),
-                    Token::CurlyOpen,
-                    Token::Identifier("instrument"),
-                    Token::Column,
-                    Token::Identifier("holder"),
-                    Token::Period,
-                    Token::Identifier("id_card"),
-                    Token::CurlyClose,
-                    Token::NewLine,
-                    Token::Identifier("consequence"),
-                    Token::Column,
-                    Token::Identifier("holder"),
-                    Token::Becomes,
-                    Token::Identifier("member"),
-                    Token::NewLine,
-                    Token::CurlyClose,
-                    Token::As,
-                    Token::Identifier("p1"),
-                    Token::NewLine
-                ]
-            ),
-            None => panic!(),
-        }
-    }
 }

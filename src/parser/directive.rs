@@ -1,165 +1,12 @@
-use std::collections::HashMap;
-
-use ariadne::{sources, Color, Label, Report, ReportKind};
+use crate::{
+    parser::ast::*,
+    parser::common::{Span, Spanned},
+    parser::lexer::Token,
+};
 use chumsky::{extra, input::ValueInput, prelude::*};
 
-use crate::{
-    common::{Span, Spanned},
-    lexer::Token,
-};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Literal<'i> {
-    Undefined,
-    Number(f64),
-    Boolean(bool),
-    String(&'i str),
-}
-
-type Identifier<'i> = &'i str;
-type ExternalExpr<'i> = &'i str;
-type Refinement<'i> = HashMap<Spanned<Identifier<'i>>, Spanned<Descriptor<'i>>>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Directive<'i> {
-    TransformationalRule {
-        condition: Option<Spanned<TransitionEvent<'i>>>,
-        conclusion: Spanned<TransitionEvent<'i>>,
-    },
-    ReactiveRule {
-        event: Option<Spanned<ActionEvent<'i>>>,
-        reaction: Spanned<ActionEvent<'i>>,
-    },
-    DeonticFrame(DeonticFrame<'i>),
-    PowerFrame(PowerFrame<'i>),
-    CompositeFrame(CompositeFrame<'i>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Object<'i> {
-    name: Spanned<Identifier<'i>>,
-    refinement: Option<Spanned<Refinement<'i>>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DeonticFrame<'i> {
-    position: Spanned<DeonticPosition>,
-    holder: Option<Spanned<Descriptor<'i>>>,
-    counterparty: Option<Spanned<Descriptor<'i>>>,
-    action: Spanned<ActionEvent<'i>>,
-    violation: Option<Spanned<ExternalExpr<'i>>>,
-    termination: Option<Spanned<ExternalExpr<'i>>>,
-    alias: Option<Spanned<Identifier<'i>>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PowerFrame<'i> {
-    position: Spanned<PowerPosition>,
-    holder: Option<Spanned<Descriptor<'i>>>,
-    action: Spanned<ActionEvent<'i>>,
-    consequence: Option<Spanned<TransitionEvent<'i>>>,
-    alias: Option<Spanned<Identifier<'i>>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompositeFrame<'i> {
-    identifier: Spanned<Identifier<'i>>,
-    params: Vec<Spanned<CompositeFrameParam<'i>>>,
-    content: Vec<Spanned<Directive<'i>>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Descriptor<'i> {
-    Error,
-    Literal(Literal<'i>),
-    Identifier(Identifier<'i>),
-    BinaryOp {
-        op: BinaryOp,
-        lhs: Box<Spanned<Self>>,
-        rhs: Box<Spanned<Self>>,
-    },
-    Projection {
-        lhs: Box<Spanned<Self>>,
-        rhs: Box<Spanned<Self>>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum BinaryOp {
-    Union,
-    Intersection,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum DeonticPosition {
-    Duty,
-    Prohibition,
-    Liberty,
-    Claim,
-    Protection,
-    NoClaim,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PowerPosition {
-    Power,
-    Liability,
-    Disability,
-    Immunity,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ActionEvent<'i> {
-    name: Spanned<Identifier<'i>>,
-    refinement: Option<Spanned<Refinement<'i>>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TransitionEvent<'i> {
-    Production(ProductionEvent<'i>),
-    Naming(NamingEvent<'i>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct NamingEvent<'i> {
-    input: Box<Spanned<Descriptor<'i>>>,
-    output: Box<Spanned<Descriptor<'i>>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ProductionEvent<'i> {
-    Plus(Box<ProductionEventTarget<'i>>),
-    Minus(Box<ProductionEventTarget<'i>>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompositeFrameParam<'i> {
-    name: Option<Spanned<Identifier<'i>>>,
-    descriptor: Spanned<Descriptor<'i>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ProductionEventTarget<'i> {
-    Descriptor(Spanned<Descriptor<'i>>),
-    PowerFrame(Spanned<PowerFrame<'i>>),
-    DeonticFrame(Spanned<DeonticFrame<'i>>),
-    CompositeFrameCall {
-        name: Spanned<Identifier<'i>>,
-        args: Vec<Spanned<Identifier<'i>>>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum FrameProperty<'i> {
-    Holder(Option<Descriptor<'i>>),
-    Counterparty(Option<Descriptor<'i>>),
-    Action(ActionEvent<'i>),
-    Consequence(Option<TransitionEvent<'i>>),
-    Violation(Option<ExternalExpr<'i>>),
-    Termination(Option<ExternalExpr<'i>>),
-}
-
-fn directive_parser<'i, I>(
+/// Parse a directive from an input of [`lexer::Token`](crate::parser::lexer::Token), a root-level statement in a DCPL program
+pub fn directive_parser<'i, I>(
 ) -> impl Parser<'i, I, Spanned<Directive<'i>>, extra::Err<Rich<'i, Token<'i>, Span>>> + Clone
 where
     I: ValueInput<'i, Token = Token<'i>, Span = Span>,
@@ -267,7 +114,7 @@ where
             .then(descriptor_parser.clone())
             .map_with(|((input, _), output), e| {
                 (
-                    TransitionEvent::Naming(NamingEvent {
+                    TransitionEvent::Qualification(QualificationEvent {
                         input: Box::new(input),
                         output: Box::new(output),
                     }),
@@ -344,7 +191,7 @@ where
             });
 
         let production_event_parser = choice((
-            production_event_composite_parser.clone(),
+            production_event_composite_parser,
             production_event_descriptor_parser.clone(),
             production_event_frame_parser.clone(),
         ));
@@ -406,7 +253,7 @@ where
 
         let power_frame_parser = power_position_parser
             .then(power_properties)
-            .then(alias_parser.clone().or_not())
+            .then(alias_parser.or_not())
             .map(|((position, properties), alias)| {
                 Directive::PowerFrame(PowerFrame {
                     position,
@@ -452,8 +299,8 @@ where
             holder_parser.clone(),
             action_parser.clone(),
             counterparty_parser.clone(),
-            violation_parser.clone(),
-            termination_parser.clone(),
+            violation_parser,
+            termination_parser,
         ))
         .separated_by(just(Token::NewLine))
         .allow_trailing()
@@ -589,58 +436,4 @@ where
             deontic_frame_parser,
         ))
     })
-}
-
-fn parser<'i, I>(
-) -> impl Parser<'i, I, Vec<Spanned<Directive<'i>>>, extra::Err<Rich<'i, Token<'i>, Span>>> + Clone
-where
-    I: ValueInput<'i, Token = Token<'i>, Span = Span>,
-{
-    directive_parser()
-        .padded_by(just(Token::NewLine).repeated())
-        .separated_by(just(Token::NewLine).repeated())
-        .allow_trailing()
-        .allow_leading()
-        .collect::<Vec<_>>()
-        .then_ignore(end().or_not())
-}
-
-pub fn parse<'i>(
-    filename: String,
-    src: &'i str,
-    input: &'i Vec<Spanned<Token<'i>>>,
-) -> Option<Vec<Spanned<Directive<'i>>>> {
-    let (ast, parse_errs) = parser()
-        .parse(
-            input
-                .as_slice()
-                .map((src.len()..src.len()).into(), |(t, s)| (t, s)),
-        )
-        .into_output_errors();
-
-    if parse_errs.is_empty() {
-        ast
-    } else {
-        parse_errs
-            .into_iter()
-            .map(|e| e.map_token(|tok| tok.to_string()))
-            .for_each(|e| {
-                Report::build(ReportKind::Error, filename.clone(), e.span().start)
-                    .with_message(e.to_string())
-                    .with_label(
-                        Label::new((filename.clone(), e.span().into_range()))
-                            .with_message(e.reason().to_string())
-                            .with_color(Color::Red),
-                    )
-                    .with_labels(e.contexts().map(|(label, span)| {
-                        Label::new((filename.clone(), span.into_range()))
-                            .with_message(format!("while parsing this {}", label))
-                            .with_color(Color::Yellow)
-                    }))
-                    .finish()
-                    .print(sources([(filename.clone(), src)]))
-                    .unwrap()
-            });
-        None
-    }
 }
