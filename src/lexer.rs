@@ -1,3 +1,4 @@
+use ariadne::{sources, Color, Label, Report, ReportKind};
 use chumsky::prelude::*;
 
 use std::fmt;
@@ -180,15 +181,34 @@ fn lexer<'a>() -> impl Parser<'a, &'a str, Vec<Spanned<Token<'a>>>, extra::Err<R
         .collect()
 }
 
-pub fn lex(input: &'_ str) -> Option<Vec<Spanned<Token<'_>>>> {
-    match lexer().parse(input).into_result() {
-        Ok(ast) => return Some(ast),
-        // TODO(andrea): use ariadne errors
-        Err(parse_errs) => parse_errs
+pub fn lex(filename: String, input: &'_ str) -> Option<Vec<Spanned<Token<'_>>>> {
+    let (tokens, parse_errs) = lexer().parse(input).into_output_errors();
+
+    if parse_errs.is_empty() {
+        tokens
+    } else {
+        parse_errs
             .into_iter()
-            .for_each(|e| println!("Parse error: {}", e)),
-    };
-    None
+            .map(|e| e.map_token(|tok| tok.to_string()))
+            .for_each(|e| {
+                Report::build(ReportKind::Error, filename.clone(), e.span().start)
+                    .with_message(e.to_string())
+                    .with_label(
+                        Label::new((filename.clone(), e.span().into_range()))
+                            .with_message(e.reason().to_string())
+                            .with_color(Color::Red),
+                    )
+                    .with_labels(e.contexts().map(|(label, span)| {
+                        Label::new((filename.clone(), span.into_range()))
+                            .with_message(format!("while parsing this {}", label))
+                            .with_color(Color::Yellow)
+                    }))
+                    .finish()
+                    .print(sources([(filename.clone(), input)]))
+                    .unwrap()
+            });
+        None
+    }
 }
 
 #[cfg(test)]
@@ -197,14 +217,16 @@ mod tests {
 
     #[test]
     fn power_frame() {
-        match lex("
+        match lex(
+            "test_power_frame".into(),
+            "
             power {
                 holder: student | staff
                 action: #register { instrument: holder.id_card }
                 consequence: holder becomes member
             } as p1
-        ")
-        {
+        ",
+        ) {
             Some(mut tokens) => assert_eq!(
                 tokens
                     .iter_mut()
