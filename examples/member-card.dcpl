@@ -1,0 +1,5 @@
+power {
+    holder: student | staff
+    consequence: holder becomes member
+    action: #register { instrument: holder.id_card }
+}

@@ -1,0 +1,23 @@
+borrowing(lender: person, borrower: person, book, timeout: number) {
+    power {
+        holder: lender ''
+        action: #request_return
+        consequence: +duty {
+            holder: borrower
+            counterparty: lender
+            action: #return { item: book }
+        }
+    }
+    duty {
+        holder: borrower
+        counterparty: lender
+        action: #return { item: book }
+        violation: `now() > timeout`
+    } as d1
+    
+    +d1.violation => +power {
+        holder: lender
+        action: #fine { recipient: borrower }
+        consequence: +angry(borrower, lender)
+    }
+}

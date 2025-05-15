@@ -2,7 +2,7 @@ use std::{env, fs};
 
 use ariadne::{sources, Color, Label, Report, ReportKind};
 use chumsky::error::Rich;
-use dcpl::*;
+use dcpl_parser::*;
 
 fn main() {
     let filename = env::args().nth(1).expect("Expected file argument");
